@@ -135,7 +135,8 @@ export function ForgetSshWorkspaceDialog(): React.JSX.Element | null {
                 )
               : translate(
                   'auto.components.sidebar.ForgetSshWorkspaceDialog.ghostBody',
-                  'The SSH host for this workspace has been removed, so it can only be removed from Orca.'
+                  '{{host}} is no longer a saved SSH host, so this workspace is no longer connected to a live host. It can only be removed from Orca — files and branches on the remote are left untouched.',
+                  { host: hostLabel }
                 )}
           </DialogDescription>
         </DialogHeader>
@@ -145,7 +146,11 @@ export function ForgetSshWorkspaceDialog(): React.JSX.Element | null {
           <span className="min-w-0 flex-1 truncate text-xs font-medium">{hostLabel}</span>
         </div>
 
-        <p className="text-[11px] leading-snug text-muted-foreground">{forgetDescription}</p>
+        {/* Why: the ghost-host description already states files are untouched, so
+            only repeat the reassurance on the reconnect (disconnected) path. */}
+        {canReconnect ? (
+          <p className="text-[11px] leading-snug text-muted-foreground">{forgetDescription}</p>
+        ) : null}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" size="sm" onClick={() => closeModal()} disabled={busy != null}>
