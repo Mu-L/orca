@@ -97,6 +97,7 @@ import {
   releaseAutomationWorkspaceProvenanceRequest,
   resolveAutomationWorkspaceProvenance
 } from '../automations/workspace-provenance'
+import { shouldEmitBoundedWarning } from './bounded-warning-dedupe'
 
 type CreateWorktreeArgsWithSystemProvenance = CreateWorktreeArgs & {
   automationProvenance?: AutomationWorkspaceProvenance
@@ -528,10 +529,9 @@ function getDetectedWorktreeScanCacheKey(
 }
 
 function warnOnce(keySet: Set<string>, key: string, message: string, error?: unknown): void {
-  if (keySet.has(key)) {
+  if (!shouldEmitBoundedWarning(keySet, key)) {
     return
   }
-  keySet.add(key)
   if (error) {
     console.warn(message, error)
   } else {
