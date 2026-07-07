@@ -4,6 +4,8 @@ export type DaemonStartOptions = {
   socketPath: string
   tokenPath: string
   spawnSubprocess: DaemonServerOptions['spawnSubprocess']
+  onIdleExit?: DaemonServerOptions['onIdleExit']
+  idleExitGraceMs?: DaemonServerOptions['idleExitGraceMs']
 }
 
 export type DaemonHandle = {
@@ -14,7 +16,9 @@ export async function startDaemon(opts: DaemonStartOptions): Promise<DaemonHandl
   const server = new DaemonServer({
     socketPath: opts.socketPath,
     tokenPath: opts.tokenPath,
-    spawnSubprocess: opts.spawnSubprocess
+    spawnSubprocess: opts.spawnSubprocess,
+    onIdleExit: opts.onIdleExit,
+    idleExitGraceMs: opts.idleExitGraceMs
   })
 
   await server.start()

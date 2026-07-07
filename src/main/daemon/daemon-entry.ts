@@ -78,7 +78,12 @@ async function main(): Promise<void> {
   daemon = await startDaemon({
     socketPath,
     tokenPath,
-    spawnSubprocess: (opts) => createPtySubprocess(opts)
+    spawnSubprocess: (opts) => createPtySubprocess(opts),
+    // Why: with zero sessions and zero clients the daemon is pure idle memory
+    // (see daemon-idle-exit.ts for the grace rationale). The server has
+    // already shut down cleanly when this fires, so exit(0) only reaps the
+    // process; next launch spawns a fresh daemon via the dead-socket path.
+    onIdleExit: () => process.exit(0)
   })
 
   // Signal readiness to parent via IPC (if available)
