@@ -57,6 +57,10 @@ import {
   type RemoteOpKind
 } from './source-control-primary-action'
 import {
+  hasDismissedHugeRepoWarning,
+  markHugeRepoWarningDismissed
+} from './source-control-huge-repo-warning-dismissals'
+import {
   resolveDropdownItems,
   type DropdownActionKind,
   type DropdownEntry
@@ -479,11 +483,6 @@ function rewriteCompareBaseBranchFromCandidate(
 
 const EMPTY_GIT_STATUS_ENTRIES: GitStatusEntry[] = []
 const EMPTY_BRANCH_CHANGE_ENTRIES: GitBranchChangeEntry[] = []
-
-// Why: the "too many changes — add folder to .gitignore?" warning shows at most
-// once per worktree per session (the analog of a "Don't show again" gate), so a
-// repo that stays huge across polls doesn't re-toast every refresh.
-const hugeRepoWarningDismissed = new Set<string>()
 
 // Why: directional signifiers ahead of each primary action label. Commit
 // (✓) is affirmative; Push (↑) points in the direction data flows; Sync
@@ -1275,7 +1274,7 @@ function SourceControlInner(): React.JSX.Element {
     if (!repositoryHuge || !activeWorktreeId || !worktreePath || activeConnectionId) {
       return
     }
-    if (hugeRepoWarningDismissed.has(activeWorktreeId)) {
+    if (hasDismissedHugeRepoWarning(activeWorktreeId)) {
       return
     }
     const worktreeId = activeWorktreeId
@@ -1283,10 +1282,10 @@ function SourceControlInner(): React.JSX.Element {
     void window.api.git
       .findHugeFoldersToIgnore({ worktreePath })
       .then((folders) => {
-        if (cancelled || folders.length === 0 || hugeRepoWarningDismissed.has(worktreeId)) {
+        if (cancelled || folders.length === 0 || hasDismissedHugeRepoWarning(worktreeId)) {
           return
         }
-        hugeRepoWarningDismissed.add(worktreeId)
+        markHugeRepoWarningDismissed(worktreeId)
         const folderName = folders[0]
         toast.warning(
           translate(
