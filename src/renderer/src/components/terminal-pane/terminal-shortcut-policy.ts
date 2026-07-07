@@ -58,7 +58,11 @@ export function resolveTerminalShortcutAction(
   // ConPTY (PowerShell/cmd via PSReadLine). Only consulted for the Ctrl+Arrow
   // word-nav rule below, so the execution-host lookup it performs stays off the
   // hot path for every other keystroke.
-  isLocalWindowsConptyPane?: () => boolean
+  isLocalWindowsConptyPane?: () => boolean,
+  // Why: lazily reports whether the active pane's program advertised the kitty
+  // keyboard protocol. Only consulted for the Windows Shift+Enter rule below, so
+  // the per-pane lookup stays off the hot path for every other keystroke.
+  isActivePaneKittyKeyboardAware?: () => boolean
 ): TerminalShortcutAction | null {
   const platform: NodeJS.Platform = isMac ? 'darwin' : isWindows ? 'win32' : 'linux'
   if (!event.repeat) {
@@ -118,9 +122,15 @@ export function resolveTerminalShortcutAction(
     event.shiftKey &&
     event.key === 'Enter'
   ) {
-    // Why: Codex on Windows PowerShell treats CSI-u Shift+Enter as inert,
-    // while the Alt+Enter byte path inserts a composer newline.
-    return { type: 'sendInput', data: isWindows ? '\x1b\r' : '\x1b[13;2u' }
+    // Why: Shift+Enter must insert a composer newline, but Windows TUIs split on
+    // encoding. Codex (crossterm/win32-input-mode, no CSI-u) only newlines on the
+    // Alt+Enter byte `\x1b\r`; kitty-protocol TUIs like droid parse CSI-u directly
+    // and treat `\x1b\r` as a plain Enter that SUBMITS the message. So on Windows,
+    // send CSI-u only to panes whose program advertised the kitty keyboard
+    // protocol, and keep the Codex-compatible Alt+Enter otherwise. Non-Windows
+    // always uses CSI-u. (#7620 for droid; #2418 for the Codex fallback.)
+    const preferCsiU = !isWindows || isActivePaneKittyKeyboardAware?.() === true
+    return { type: 'sendInput', data: preferCsiU ? '\x1b[13;2u' : '\x1b\r' }
   }
 
   if (

@@ -723,8 +723,9 @@ test.describe('Terminal Shortcuts', () => {
     // Ctrl+Backspace → \x17 (unix-word-rubout).
     await pressAndExpectWrite(orcaPage, electronApp, 'Control+Backspace', '\x17')
 
-    // Shift+Enter → a modified Enter byte path so agents can distinguish it
-    // from plain Enter. Windows uses Esc+CR because Codex ignores CSI-u there.
+    // Shift+Enter → a modified Enter byte path so agents can distinguish it from
+    // plain Enter. On Windows a plain (non-kitty) pane uses Esc+CR because Codex
+    // ignores CSI-u there; kitty-protocol panes (e.g. droid) get CSI-u (#7620).
     await pressAndExpectWrite(
       orcaPage,
       electronApp,

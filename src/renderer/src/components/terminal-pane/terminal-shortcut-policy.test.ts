@@ -89,7 +89,9 @@ describe('resolveTerminalShortcutAction', () => {
     })
   })
 
-  it('uses the Codex-compatible Shift+Enter sequence on Windows', () => {
+  it('uses the Codex-compatible Shift+Enter sequence on Windows win32-input-mode panes', () => {
+    // Default (no kitty-awareness getter) and an explicit non-kitty pane both
+    // fall back to Alt+Enter so Codex-on-PowerShell newlines instead of ignoring.
     expect(
       resolveTerminalShortcutAction(
         event({ key: 'Enter', code: 'Enter', shiftKey: true }),
@@ -102,6 +104,52 @@ describe('resolveTerminalShortcutAction', () => {
       type: 'sendInput',
       data: '\x1b\r'
     })
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        undefined,
+        () => false
+      )
+    ).toEqual({ type: 'sendInput', data: '\x1b\r' })
+  })
+
+  it('sends CSI-u Shift+Enter to Windows panes that speak the kitty keyboard protocol (#7620)', () => {
+    // Why: droid parses CSI-u directly and treats the Alt+Enter byte as a plain
+    // Enter that submits, so kitty-aware Windows panes must get `\x1b[13;2u`.
+    expect(
+      resolveTerminalShortcutAction(
+        event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+        false,
+        'false',
+        0,
+        true,
+        undefined,
+        undefined,
+        () => true
+      )
+    ).toEqual({ type: 'sendInput', data: '\x1b[13;2u' })
+  })
+
+  it('always uses CSI-u Shift+Enter off Windows regardless of kitty awareness', () => {
+    for (const kittyAware of [() => true, () => false, undefined]) {
+      expect(
+        resolveTerminalShortcutAction(
+          event({ key: 'Enter', code: 'Enter', shiftKey: true }),
+          false,
+          'false',
+          0,
+          false,
+          undefined,
+          undefined,
+          kittyAware
+        )
+      ).toEqual({ type: 'sendInput', data: '\x1b[13;2u' })
+    }
   })
 
   it('forwards Ctrl+Enter as the kitty CSI-u chord so TUIs can cue instead of send', () => {

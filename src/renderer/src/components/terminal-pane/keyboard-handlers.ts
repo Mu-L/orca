@@ -23,6 +23,7 @@ import { splitTerminalPaneWithInheritedCwd } from './terminal-pane-split-with-in
 import { useAppStore } from '@/store'
 import { recordTerminalUserInputForLeaf } from './terminal-input-activity'
 import { isLocalWindowsConptyPaneForCtrlArrow } from './terminal-ctrl-arrow-conpty'
+import { isTerminalKittyKeyboardAware } from './terminal-kitty-keyboard-awareness'
 import {
   markTerminalFollowOutput,
   markTerminalPinnedViewport,
@@ -293,6 +294,15 @@ export function useTerminalKeyboardShortcuts({
         })
       }
 
+      // Why: Windows Shift+Enter picks its byte from whether the active pane's
+      // program speaks the kitty keyboard protocol (droid) or only
+      // win32-input-mode (Codex). Resolved lazily so the per-pane lookup stays
+      // off other keystrokes.
+      const isActivePaneKittyKeyboardAware = (): boolean => {
+        const activePane = manager.getActivePane() ?? manager.getPanes()[0]
+        return isTerminalKittyKeyboardAware(activePane?.terminal)
+      }
+
       const action = resolveTerminalShortcutAction(
         e,
         isMac,
@@ -300,7 +310,8 @@ export function useTerminalKeyboardShortcuts({
         optionKeyLocation,
         isWindows,
         keybindings,
-        isLocalWindowsConptyPane
+        isLocalWindowsConptyPane,
+        isActivePaneKittyKeyboardAware
       )
       if (!action) {
         return

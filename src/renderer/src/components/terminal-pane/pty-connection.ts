@@ -135,6 +135,7 @@ import {
   installTerminalCapabilityReplyHandlers,
   sendTerminalOscColorQueryReplies
 } from './terminal-capability-replies'
+import { installKittyKeyboardAwarenessDetector } from './terminal-kitty-keyboard-awareness'
 import {
   cancelScheduledHiddenOutputRestore,
   scheduleHiddenOutputRestore
@@ -2849,6 +2850,13 @@ export function connectPanePty(
     sendInput: (data) => transport.sendInput(data),
     isReplaying: () => isPaneReplaying(deps.replayingPanesRef, pane.id),
     ...(isNativeWindowsConpty ? { da1Response: CONPTY_DA1_RESPONSE } : {})
+  })
+  // Why: latch whether this pane's program speaks the kitty keyboard protocol so
+  // the shortcut policy can send CSI-u Shift+Enter to droid-style TUIs on Windows
+  // instead of the Codex-only Alt+Enter byte, which those TUIs submit. (#7620)
+  const kittyKeyboardAwarenessDisposable = installKittyKeyboardAwarenessDetector({
+    terminal: pane.terminal,
+    parser: pane.terminal.parser
   })
   const respondToTerminalPixelSizeQueries = createTerminalPixelSizeQueryResponder(
     pane.terminal,
@@ -6177,6 +6185,7 @@ export function connectPanePty(
       onDataDisposable.dispose()
       userInputActivityDisposable?.dispose()
       terminalCapabilityRepliesDisposable.dispose()
+      kittyKeyboardAwarenessDisposable.dispose()
       onResizeDisposable.dispose()
       onBufferChangeDisposable?.dispose()
       pane.container.removeEventListener(PANE_PTY_RESIZE_HOLD_FLUSH_EVENT, onHeldPtyResizeFlush)
