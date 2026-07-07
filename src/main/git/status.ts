@@ -64,6 +64,7 @@ type EffectiveUpstreamStatusCacheEntry = {
 }
 
 const SUBMODULE_PATHS_CACHE_TTL_MS = 5_000
+export const MAX_SUBMODULE_PATHS_CACHE_ENTRIES = 512
 type SubmodulePathsCacheEntry = { paths: string[]; expiresAt: number }
 const submodulePathsCache = new Map<string, SubmodulePathsCacheEntry>()
 
@@ -103,6 +104,10 @@ export function clearSubmodulePathsCacheForTests(): void {
   submodulePathsCache.clear()
 }
 
+export function getSubmodulePathsCacheCountForTests(): number {
+  return submodulePathsCache.size
+}
+
 function gitRuntimeOptionsKey(options: GitRuntimeOptions): readonly unknown[] {
   return [options.wslDistro ?? null]
 }
@@ -111,6 +116,44 @@ function getSubmodulePathsCacheKey(worktreePath: string, options: GitRuntimeOpti
   // Why: the same path string can refer to different filesystem views across
   // WSL distros, so the `.gitmodules` cache must follow runtime routing.
   return [worktreePath, ...gitRuntimeOptionsKey(options)].join('\0')
+}
+
+function pruneExpiredSubmodulePathsCache(now: number): void {
+  for (const [cacheKey, entry] of submodulePathsCache) {
+    if (entry.expiresAt <= now) {
+      submodulePathsCache.delete(cacheKey)
+    }
+  }
+}
+
+function trimSubmodulePathsCache(): void {
+  while (submodulePathsCache.size > MAX_SUBMODULE_PATHS_CACHE_ENTRIES) {
+    const oldestKey = submodulePathsCache.keys().next().value
+    if (oldestKey === undefined) {
+      break
+    }
+    submodulePathsCache.delete(oldestKey)
+  }
+}
+
+function getCachedSubmodulePaths(cacheKey: string, now: number): string[] | null {
+  const cached = submodulePathsCache.get(cacheKey)
+  if (!cached) {
+    return null
+  }
+  if (cached.expiresAt <= now) {
+    submodulePathsCache.delete(cacheKey)
+    return null
+  }
+  submodulePathsCache.delete(cacheKey)
+  submodulePathsCache.set(cacheKey, cached)
+  return cached.paths
+}
+
+function rememberSubmodulePaths(cacheKey: string, paths: string[], now: number): void {
+  submodulePathsCache.delete(cacheKey)
+  submodulePathsCache.set(cacheKey, { paths, expiresAt: now + SUBMODULE_PATHS_CACHE_TTL_MS })
+  trimSubmodulePathsCache()
 }
 
 // Why: status tests reuse this reset hook, so every cross-call memoization layer
@@ -945,9 +988,12 @@ export async function listSubmodulePaths(
 ): Promise<string[]> {
   const now = Date.now()
   const cacheKey = getSubmodulePathsCacheKey(worktreePath, options)
-  const cached = submodulePathsCache.get(cacheKey)
-  if (cached && cached.expiresAt > now) {
-    return cached.paths
+  // Why: the cache is keyed by worktree/runtime; removed worktrees may never
+  // revisit their key, so every access prunes expired stale keys globally.
+  pruneExpiredSubmodulePathsCache(now)
+  const cached = getCachedSubmodulePaths(cacheKey, now)
+  if (cached) {
+    return cached
   }
   let paths: string[] = []
   try {
@@ -971,7 +1017,7 @@ export async function listSubmodulePaths(
     // No .gitmodules (or git config failure) — treat as a repo without submodules.
     paths = []
   }
-  submodulePathsCache.set(cacheKey, { paths, expiresAt: now + SUBMODULE_PATHS_CACHE_TTL_MS })
+  rememberSubmodulePaths(cacheKey, paths, now)
   return paths
 }
 
