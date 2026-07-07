@@ -74,7 +74,8 @@ import {
   LOCAL_EXECUTION_HOST_ID,
   parseExecutionHostId,
   toRuntimeExecutionHostId,
-  toSshExecutionHostId
+  toSshExecutionHostId,
+  type ExecutionHostId
 } from '../../../../shared/execution-host'
 import { cleanupEphemeralVmRuntimesForDeleted } from '@/lib/ephemeral-vm-runtime-cleanup'
 import { folderWorkspaceKey, parseWorkspaceKey } from '../../../../shared/workspace-scope'
@@ -1371,7 +1372,9 @@ export type RepoSlice = {
     groupId: string | null,
     order?: number
   ) => Promise<boolean>
-  removeProject: (projectId: string) => Promise<void>
+  // options.hostId disambiguates which host's row to remove when the same repo
+  // id exists on multiple hosts; without it the focused host is assumed.
+  removeProject: (projectId: string, options?: { hostId?: ExecutionHostId }) => Promise<void>
   updateProject: (projectId: string, updates: ProjectUpdate) => Promise<boolean>
   updateRepo: (projectId: string, updates: RepoUpdate) => Promise<boolean>
   setActiveRepo: (projectId: string | null) => void
@@ -2539,9 +2542,15 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     }
   },
 
-  removeProject: async (projectId) => {
+  removeProject: async (projectId, options) => {
     try {
-      const ownerRepo = findRepoForHost(get().repos, projectId, { settings: get().settings })
+      // Why: pass an explicit hostId (e.g. when removing an SSH host's root repo)
+      // so a duplicate id across hosts resolves to the intended row instead of
+      // falling back to the focused host.
+      const ownerRepo = findRepoForHost(get().repos, projectId, {
+        settings: get().settings,
+        hostId: options?.hostId
+      })
       if (!ownerRepo) {
         return
       }
@@ -2557,8 +2566,17 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
         })
       }
       const target = getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))
+      // Why: the same repo id can exist on multiple hosts (local + an SSH target,
+      // or a re-added SSH target). Main's repos:remove is repo-id-only and would
+      // delete every host's row. Scope the local-side removal to the owning host
+      // so a cross-host duplicate id keeps its other rows.
+      const idExistsOnOtherHost = get().repos.some(
+        (repo) => repo.id === projectId && getRepoExecutionHostId(repo) !== ownerHostId
+      )
       await (target.kind === 'local'
-        ? window.api.repos.remove({ repoId: projectId })
+        ? idExistsOnOtherHost
+          ? window.api.repos.removeForHost({ repoId: projectId, hostId: ownerHostId })
+          : window.api.repos.remove({ repoId: projectId })
         : callRuntimeRpc(target, 'repo.rm', { repo: projectId }, { timeoutMs: 15_000 }))
 
       get().clearOrcaHookTrustForRepo(projectId)

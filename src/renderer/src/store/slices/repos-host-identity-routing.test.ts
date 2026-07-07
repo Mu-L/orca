@@ -26,6 +26,7 @@ const remoteDuplicate: Repo = {
 }
 
 const reposRemove = vi.fn()
+const reposRemoveForHost = vi.fn()
 const reposUpdate = vi.fn()
 const reposReorder = vi.fn()
 const ptyKill = vi.fn()
@@ -59,6 +60,7 @@ function projectHostSetup(overrides: Pick<ProjectHostSetup, 'id' | 'hostId'>): P
 beforeEach(() => {
   clearRuntimeCompatibilityCacheForTests()
   reposRemove.mockReset()
+  reposRemoveForHost.mockReset()
   reposUpdate.mockReset()
   reposReorder.mockReset()
   ptyKill.mockReset()
@@ -71,6 +73,7 @@ beforeEach(() => {
     api: {
       repos: {
         remove: reposRemove,
+        removeForHost: reposRemoveForHost,
         update: reposUpdate,
         reorder: reposReorder
       },
@@ -260,9 +263,41 @@ describe('repo slice host identity routing', () => {
     expect(store.getState().projects).toEqual([
       expect.objectContaining({ id: 'repo:same-repo', sourceRepoIds: ['same-repo'] })
     ])
-    expect(reposRemove).toHaveBeenCalledWith({ repoId: 'same-repo' })
+    // Why: the id also exists on runtime:env-1, so the local-side removal must be
+    // host-scoped in main to avoid deleting the other host's persisted repo row.
+    expect(reposRemoveForHost).toHaveBeenCalledWith({ repoId: 'same-repo', hostId: 'local' })
+    expect(reposRemove).not.toHaveBeenCalled()
     expect(ptyKill).toHaveBeenCalledWith('local-pty')
     expect(ptyKill).not.toHaveBeenCalledWith('remote-pty')
+  })
+
+  it('removeProject with an explicit hostId targets that host, not the focused one', async () => {
+    const localWorktree = makeWorktree({ id: 'same-repo::/local/wt', repoId: 'same-repo' })
+    const remoteWorktree = makeWorktree({
+      id: 'same-repo::/remote/wt',
+      repoId: 'same-repo',
+      hostId: 'runtime:env-1'
+    })
+    const store = createTestStore()
+    // Focus is local (no active runtime env). Without an explicit hostId the old
+    // behavior would resolve to the local row; the SSH/host-removal flow passes
+    // the non-focused host so the correct row is removed.
+    store.setState({
+      repos: [localDuplicate, remoteDuplicate],
+      worktreesByRepo: { 'same-repo': [localWorktree, remoteWorktree] }
+    })
+
+    await store.getState().removeProject('same-repo', { hostId: 'runtime:env-1' })
+
+    // Resolves to the explicitly-passed host, not the focused (local) one, and
+    // removes only that row host-scoped in main. The local row stays.
+    expect(reposRemoveForHost).toHaveBeenCalledWith({
+      repoId: 'same-repo',
+      hostId: 'runtime:env-1'
+    })
+    expect(reposRemove).not.toHaveBeenCalled()
+    expect(store.getState().repos).toEqual([localDuplicate])
+    expect(store.getState().worktreesByRepo['same-repo']).toEqual([localWorktree])
   })
 
   it('removes a runtime duplicate without purging legacy local worktrees', async () => {

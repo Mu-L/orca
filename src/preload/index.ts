@@ -520,6 +520,8 @@ const api = {
 
     remove: (args) => ipcRenderer.invoke('repos:remove', args),
 
+    removeForHost: (args) => ipcRenderer.invoke('repos:removeForHost', args),
+
     reorder: (args) => ipcRenderer.invoke('repos:reorder', args),
 
     update: (args) => ipcRenderer.invoke('repos:update', args),
@@ -651,6 +653,8 @@ const api = {
     resolveMrBase: (args) => ipcRenderer.invoke('worktrees:resolveMrBase', args),
 
     remove: (args) => ipcRenderer.invoke('worktrees:remove', args),
+
+    forgetLocal: (args) => ipcRenderer.invoke('worktrees:forgetLocal', args),
 
     forceDeletePreservedBranch: (args) =>
       ipcRenderer.invoke('worktrees:forceDeletePreservedBranch', args),
