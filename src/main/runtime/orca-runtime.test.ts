@@ -60,6 +60,11 @@ import {
   TERMINAL_INPUT_MAX_BYTES,
   TERMINAL_INPUT_TOO_LARGE_ERROR
 } from '../../shared/terminal-input'
+import {
+  AGENT_PROMPT_BRACKETED_PASTE_END,
+  AGENT_PROMPT_BRACKETED_PASTE_START,
+  buildAgentPromptPasteBytes
+} from '../../shared/agent-prompt-injection'
 import { CLIPBOARD_TEXT_MEASURE_YIELD_CODE_UNITS } from '../../shared/clipboard-text'
 import {
   registerSshFilesystemProvider,
@@ -9296,6 +9301,110 @@ describe('OrcaRuntimeService', () => {
     await runtime.sendTerminal(handle, { text: 'continue', enter: true })
 
     expect(writes).toEqual(['continue', '\r'])
+  })
+
+  it('sends agent prompts as bracketed paste before submit', async () => {
+    vi.useFakeTimers()
+    try {
+      const writes: string[] = []
+      const runtime = new OrcaRuntimeService(store)
+      runtime.setPtyController({
+        spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+        write: (_ptyId, data) => {
+          writes.push(data)
+          return true
+        },
+        kill: () => true,
+        getForegroundProcess: async () => null
+      })
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+      const prompt = 'line one\nline two\x1b[201~'
+
+      const sendPromise = runtime.sendTerminalAgentPrompt(handle, prompt)
+      await vi.runAllTimersAsync()
+      const result = await sendPromise
+
+      const pasted = [
+        AGENT_PROMPT_BRACKETED_PASTE_START,
+        'line one\nline two<ESC>[201~',
+        AGENT_PROMPT_BRACKETED_PASTE_END
+      ].join('')
+      expect(result).toMatchObject({
+        handle,
+        accepted: true,
+        bytesWritten: Buffer.byteLength(`${pasted}\r`, 'utf8')
+      })
+      expect(writes).toEqual([pasted, '\r'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('chunks large agent prompt paste frames before delayed submit', async () => {
+    vi.useFakeTimers()
+    try {
+      const writes: string[] = []
+      const runtime = new OrcaRuntimeService(store)
+      runtime.setPtyController({
+        spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+        write: (_ptyId, data) => {
+          writes.push(data)
+          return true
+        },
+        kill: () => true,
+        getForegroundProcess: async () => null
+      })
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+      const prompt = `${'x'.repeat(TERMINAL_INPUT_CHUNK_MAX_BYTES)}\ntail`
+
+      const sendPromise = runtime.sendTerminalAgentPrompt(handle, prompt)
+      await vi.runAllTimersAsync()
+      const result = await sendPromise
+
+      const pasteWrites = writes.slice(0, -1)
+      expect(result.bytesWritten).toBe(
+        Buffer.byteLength(`${buildAgentPromptPasteBytes(prompt)}\r`, 'utf8')
+      )
+      expect(writes.at(-1)).toBe('\r')
+      expect(pasteWrites.length).toBeGreaterThan(1)
+      expect(pasteWrites.join('')).toBe(buildAgentPromptPasteBytes(prompt))
+      expect(pasteWrites[0]).toContain(AGENT_PROMPT_BRACKETED_PASTE_START)
+      expect(pasteWrites.at(-1)).toContain(AGENT_PROMPT_BRACKETED_PASTE_END)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('closes an incomplete agent prompt paste when a later chunk write fails', async () => {
+    vi.useFakeTimers()
+    try {
+      const writes: string[] = []
+      let writeCount = 0
+      const runtime = new OrcaRuntimeService(store)
+      runtime.setPtyController({
+        spawn: vi.fn().mockResolvedValue({ id: 'pty-bg' }),
+        write: (_ptyId, data) => {
+          writeCount += 1
+          writes.push(data)
+          return writeCount !== 2
+        },
+        kill: () => true,
+        getForegroundProcess: async () => null
+      })
+      const { handle } = await runtime.createTerminal(`path:${TEST_WORKTREE_PATH}`)
+      const prompt = 'x'.repeat(TERMINAL_INPUT_CHUNK_MAX_BYTES + 1)
+
+      const sendPromise = runtime.sendTerminalAgentPrompt(handle, prompt)
+      const sendRejection = expect(sendPromise).rejects.toThrow('terminal_not_writable')
+      await vi.runAllTimersAsync()
+
+      await sendRejection
+      expect(writes[0]).toContain(AGENT_PROMPT_BRACKETED_PASTE_START)
+      expect(writes.at(-1)).toBe(AGENT_PROMPT_BRACKETED_PASTE_END)
+      expect(writes).not.toContain('\r')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('chunks large terminal.send text before provider writes', async () => {

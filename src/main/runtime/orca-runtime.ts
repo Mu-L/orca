@@ -34,6 +34,12 @@ import {
   TERMINAL_INPUT_TOO_LARGE_ERROR,
   iterateTerminalInputChunks
 } from '../../shared/terminal-input'
+import {
+  AGENT_PROMPT_BRACKETED_PASTE_END,
+  AGENT_PROMPT_SUBMIT,
+  AGENT_PROMPT_SUBMIT_DELAY_MS,
+  buildAgentPromptPasteBytes
+} from '../../shared/agent-prompt-injection'
 import { gitExecFileAsync, wslAwareSpawn } from '../git/runner'
 import {
   cleanupClaimedCloneTarget,
@@ -8827,6 +8833,35 @@ export class OrcaRuntimeService {
     }
   }
 
+  async sendTerminalAgentPrompt(
+    handle: string,
+    prompt: string,
+    options: {
+      beforeWrite?: (ptyId: string) => void | Promise<void>
+      suffixFailureError?: string
+    } = {}
+  ): Promise<RuntimeTerminalSend> {
+    const payload = buildAgentPromptPasteBytes(prompt)
+    const bytesWritten = Buffer.byteLength(`${payload}${AGENT_PROMPT_SUBMIT}`, 'utf8')
+    const pty = this.getLivePtyForHandle(handle)
+    if (pty) {
+      if (!pty.pty.connected) {
+        throw new Error('terminal_not_writable')
+      }
+      await assertTerminalInputWithinLimitWithYield(payload)
+      await this.writeTerminalAgentPrompt(pty.pty.ptyId, payload, options)
+      return { handle, accepted: true, bytesWritten }
+    }
+
+    const { leaf } = this.getLiveLeafForHandle(handle)
+    if (!leaf.writable || !leaf.ptyId) {
+      throw new Error('terminal_not_writable')
+    }
+    await assertTerminalInputWithinLimitWithYield(payload)
+    await this.writeTerminalAgentPrompt(leaf.ptyId, payload, options)
+    return { handle, accepted: true, bytesWritten }
+  }
+
   async getTerminalAgentStatus(handle: string): Promise<RuntimeTerminalAgentStatus> {
     const terminal = this.getTerminalAgentStatusSnapshot(handle)
     const explicitStatus = this.getFreshExplicitAgentStatusForHandle(handle)
@@ -9181,6 +9216,54 @@ export class OrcaRuntimeService {
       if (!chunk.done) {
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
+    }
+  }
+
+  private async writeTerminalAgentPrompt(
+    ptyId: string,
+    pastePayload: string,
+    options: {
+      beforeWrite?: (ptyId: string) => void | Promise<void>
+      suffixFailureError?: string
+    } = {}
+  ): Promise<void> {
+    let wrotePasteBytes = false
+    let completedPaste = false
+    try {
+      const chunks = iterateTerminalInputChunks(pastePayload)
+      let chunk = chunks.next()
+      while (!chunk.done) {
+        await options.beforeWrite?.(ptyId)
+        const wrote = this.ptyController?.write(ptyId, chunk.value) ?? false
+        if (!wrote) {
+          throw new Error('terminal_not_writable')
+        }
+        wrotePasteBytes = true
+        chunk = chunks.next()
+        if (!chunk.done) {
+          await new Promise((resolve) => setTimeout(resolve, 0))
+        }
+      }
+      completedPaste = true
+    } catch (error) {
+      if (wrotePasteBytes && !completedPaste) {
+        this.ptyController?.write(ptyId, AGENT_PROMPT_BRACKETED_PASTE_END)
+      }
+      throw error
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, AGENT_PROMPT_SUBMIT_DELAY_MS))
+    try {
+      await options.beforeWrite?.(ptyId)
+    } catch (error) {
+      if (options.suffixFailureError) {
+        throw new Error(options.suffixFailureError)
+      }
+      throw error
+    }
+    const suffixWrote = this.ptyController?.write(ptyId, AGENT_PROMPT_SUBMIT) ?? false
+    if (!suffixWrote) {
+      throw new Error(options.suffixFailureError ?? 'terminal_not_writable')
     }
   }
 
