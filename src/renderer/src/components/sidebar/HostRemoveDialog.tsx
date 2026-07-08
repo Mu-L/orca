@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react'
-import { Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 import {
   Dialog,
   DialogContent,
@@ -36,7 +37,12 @@ export function HostRemoveDialog({
   label,
   target
 }: HostRemoveDialogProps): React.JSX.Element {
-  const [busy, setBusy] = useState<null | 'with-workspaces' | 'host-only'>(null)
+  const [busy, setBusy] = useState(false)
+  // Why: removing the host only (keeping workspaces) is the safe, reversible
+  // default. Deleting the remote workspaces is destructive, so it lives behind
+  // an Advanced disclosure and must be opted into explicitly.
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [deleteWorkspaces, setDeleteWorkspaces] = useState(false)
   const mountedRef = useMountedRef()
 
   const repos = useAppStore((s) => s.repos)
@@ -88,16 +94,13 @@ export function HostRemoveDialog({
     onOpenChange(false)
   }
 
-  const runSshRemoval = async (
-    mode: 'with-workspaces' | 'host-only',
-    busyKey: 'with-workspaces' | 'host-only'
-  ): Promise<void> => {
+  const runSshRemoval = async (): Promise<void> => {
     if (target.kind !== 'ssh') {
       return
     }
-    setBusy(busyKey)
+    setBusy(true)
     try {
-      if (mode === 'with-workspaces' && sshResolution) {
+      if (deleteWorkspaces && sshResolution) {
         // Connected → real remote removal; offline/ghost → local forget.
         const { failedIds } = await clearSshHostWorkspaces(
           sshResolution,
@@ -109,7 +112,7 @@ export function HostRemoveDialog({
         // retry or resolve the blocking workspace first.
         if (failedIds.length > 0) {
           if (mountedRef.current) {
-            setBusy(null)
+            setBusy(false)
           }
           toast.error(
             translate(
@@ -141,7 +144,7 @@ export function HostRemoveDialog({
       )
     } finally {
       if (mountedRef.current) {
-        setBusy(null)
+        setBusy(false)
       }
     }
   }
@@ -164,33 +167,41 @@ export function HostRemoveDialog({
           'This opens the Orca servers settings where you can remove this server.'
         )
       : hasWorkspaces
-        ? isConnected
-          ? translate(
-              'auto.components.sidebar.HostRemoveDialog.hostHasWorkspacesConnected',
-              '{{value0}} has {{value1}}. You can delete them on the remote too, or keep them and remove the host only.',
-              { value0: label, value1: workspaceCountLabel }
-            )
-          : translate(
-              'auto.components.sidebar.HostRemoveDialog.hostHasWorkspacesOffline',
-              '{{value0}} has {{value1}}. The host is not connected, so they can only be removed from Orca — remote files are left untouched.',
-              { value0: label, value1: workspaceCountLabel }
-            )
+        ? translate(
+            'auto.components.sidebar.HostRemoveDialog.hostHasWorkspacesDefault',
+            'Removes {{value0}} and its credentials from this computer. Its {{value1}} stay in Orca — remote files are not touched.',
+            { value0: label, value1: workspaceCountLabel }
+          )
         : translate(
             'auto.components.sidebar.HostRemoveDialog.5e6f7a8b9c',
             'This removes the saved SSH host and its credentials from this computer. Remote files are not deleted.'
           )
 
-  // Label for the "also clear the workspaces" action depends on whether the
-  // removal deletes remote files or only forgets Orca's records.
-  const withWorkspacesLabel = isConnected
+  // The destructive opt-in wording depends on whether we delete remote files or
+  // only forget Orca's records (offline/ghost host).
+  const deleteOptionLabel = isConnected
     ? translate(
-        'auto.components.sidebar.HostRemoveDialog.deleteHostAndWorkspaces',
-        'Delete host & workspaces'
+        'auto.components.sidebar.HostRemoveDialog.alsoDeleteRemote',
+        'Also delete these {{value0}} on the remote',
+        { value0: workspaceCountLabel }
       )
     : translate(
-        'auto.components.sidebar.HostRemoveDialog.removeHostForgetWorkspaces',
-        'Remove host & forget workspaces'
+        'auto.components.sidebar.HostRemoveDialog.alsoForgetLocal',
+        'Also remove these {{value0}} from Orca',
+        { value0: workspaceCountLabel }
       )
+
+  const primaryLabel = deleteWorkspaces
+    ? isConnected
+      ? translate(
+          'auto.components.sidebar.HostRemoveDialog.deleteHostAndWorkspaces',
+          'Remove host & delete workspaces'
+        )
+      : translate(
+          'auto.components.sidebar.HostRemoveDialog.removeHostForgetWorkspaces',
+          'Remove host & workspaces'
+        )
+    : translate('auto.components.sidebar.HostRemoveDialog.8b9c0d1e2f', 'Remove host')
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -207,8 +218,61 @@ export function HostRemoveDialog({
           </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+
+        {/* Advanced disclosure: deleting the host's workspaces is destructive, so
+            it's opt-in and hidden by default. Only shown when there are any. */}
+        {target.kind === 'ssh' && hasWorkspaces ? (
+          <div className="min-w-0 rounded-md border border-border bg-muted/30">
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              aria-expanded={advancedOpen}
+              className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors cursor-pointer hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              <span className="font-medium text-muted-foreground">
+                {translate('auto.components.sidebar.HostRemoveDialog.advanced', 'Advanced')}
+              </span>
+              <ChevronDown
+                className={cn(
+                  'size-4 shrink-0 text-muted-foreground transition-transform',
+                  advancedOpen && 'rotate-180'
+                )}
+              />
+            </button>
+            {advancedOpen ? (
+              <label className="flex cursor-pointer items-start gap-2.5 border-t border-border px-3 py-2.5 text-xs">
+                <input
+                  type="checkbox"
+                  checked={deleteWorkspaces}
+                  onChange={(e) => setDeleteWorkspaces(e.target.checked)}
+                  className="mt-0.5 size-3.5 shrink-0 accent-destructive"
+                />
+                <span className="min-w-0 flex-1 leading-snug">
+                  <span className="font-medium text-foreground">{deleteOptionLabel}</span>
+                  <span className="mt-0.5 block text-muted-foreground">
+                    {isConnected
+                      ? translate(
+                          'auto.components.sidebar.HostRemoveDialog.alsoDeleteRemoteHint',
+                          'Permanently deletes the remote Git worktrees and their branches. Cannot be undone.'
+                        )
+                      : translate(
+                          'auto.components.sidebar.HostRemoveDialog.alsoForgetLocalHint',
+                          'Clears them from Orca only. Remote files, worktrees, and branches are left untouched.'
+                        )}
+                  </span>
+                </span>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => onOpenChange(false)}
+          >
             {translate('auto.components.sidebar.HostRemoveDialog.6f7a8b9c0d', 'Cancel')}
           </Button>
           {target.kind === 'runtime' ? (
@@ -219,44 +283,15 @@ export function HostRemoveDialog({
             >
               {translate('auto.components.sidebar.HostRemoveDialog.7a8b9c0d1e', 'Open settings')}
             </Button>
-          ) : hasWorkspaces ? (
-            <>
-              {/* Keep-workspaces path stays available whenever remote delete is
-                  possible; when offline it isn't offered since "keep" would just
-                  recreate the ghost state the user is trying to clear. */}
-              {isConnected ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={busy != null}
-                  onClick={() => void runSshRemoval('host-only', 'host-only')}
-                >
-                  {busy === 'host-only' ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                  {translate(
-                    'auto.components.sidebar.HostRemoveDialog.keepWorkspaces',
-                    'Keep workspaces, remove host'
-                  )}
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="destructive"
-                disabled={busy != null}
-                onClick={() => void runSshRemoval('with-workspaces', 'with-workspaces')}
-              >
-                {busy === 'with-workspaces' ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                {withWorkspacesLabel}
-              </Button>
-            </>
           ) : (
             <Button
               type="button"
               variant="destructive"
-              disabled={busy != null}
-              onClick={() => void runSshRemoval('host-only', 'host-only')}
+              disabled={busy}
+              onClick={() => void runSshRemoval()}
             >
-              {busy === 'host-only' ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              {translate('auto.components.sidebar.HostRemoveDialog.8b9c0d1e2f', 'Remove host')}
+              {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+              {primaryLabel}
             </Button>
           )}
         </DialogFooter>
