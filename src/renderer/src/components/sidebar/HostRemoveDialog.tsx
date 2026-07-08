@@ -220,49 +220,71 @@ export function HostRemoveDialog({
         </DialogHeader>
 
         {/* Advanced disclosure: deleting the host's workspaces is destructive, so
-            it's opt-in and hidden by default. Only shown when there are any. */}
+            it's opt-in and hidden by default. Only shown when there are any.
+            Matches the New Workspace composer's Advanced header + switch. */}
         {target.kind === 'ssh' && hasWorkspaces ? (
-          <div className="min-w-0 rounded-md border border-border bg-muted/30">
-            <button
+          <div>
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => setAdvancedOpen((v) => !v)}
               aria-expanded={advancedOpen}
-              className="flex w-full items-center justify-between gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors cursor-pointer hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              className="-ml-2 text-xs"
             >
-              <span className="font-medium text-muted-foreground">
-                {translate('auto.components.sidebar.HostRemoveDialog.advanced', 'Advanced')}
-              </span>
+              {translate('auto.components.sidebar.HostRemoveDialog.advanced', 'Advanced')}
               <ChevronDown
-                className={cn(
-                  'size-4 shrink-0 text-muted-foreground transition-transform',
-                  advancedOpen && 'rotate-180'
-                )}
+                className={cn('size-4 transition-transform', advancedOpen && 'rotate-180')}
               />
-            </button>
-            {advancedOpen ? (
-              <label className="flex cursor-pointer items-start gap-2.5 border-t border-border px-3 py-2.5 text-xs">
-                <input
-                  type="checkbox"
-                  checked={deleteWorkspaces}
-                  onChange={(e) => setDeleteWorkspaces(e.target.checked)}
-                  className="mt-0.5 size-3.5 shrink-0 accent-destructive"
-                />
-                <span className="min-w-0 flex-1 leading-snug">
-                  <span className="font-medium text-foreground">{deleteOptionLabel}</span>
-                  <span className="mt-0.5 block text-muted-foreground">
-                    {isConnected
-                      ? translate(
-                          'auto.components.sidebar.HostRemoveDialog.alsoDeleteRemoteHint',
-                          'Permanently deletes the remote Git worktrees and their branches. Cannot be undone.'
-                        )
-                      : translate(
-                          'auto.components.sidebar.HostRemoveDialog.alsoForgetLocalHint',
-                          'Clears them from Orca only. Remote files, worktrees, and branches are left untouched.'
+            </Button>
+            <div
+              className={cn(
+                'grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out',
+                advancedOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+              )}
+              aria-hidden={!advancedOpen}
+            >
+              <div className="min-h-0">
+                <div className="flex items-start gap-3 px-1 pt-1">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={deleteWorkspaces}
+                    onClick={() => setDeleteWorkspaces((v) => !v)}
+                    className="group mt-0.5 flex shrink-0 cursor-pointer items-center rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors',
+                        deleteWorkspaces ? 'bg-destructive' : 'bg-muted-foreground/30'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'pointer-events-none block size-3.5 rounded-full bg-background shadow-sm transition-transform',
+                          deleteWorkspaces ? 'translate-x-4' : 'translate-x-0.5'
                         )}
+                      />
+                    </span>
+                  </button>
+                  <span className="min-w-0 flex-1 text-xs leading-snug">
+                    <span className="font-medium text-foreground">{deleteOptionLabel}</span>
+                    <span className="mt-0.5 block text-muted-foreground">
+                      {isConnected
+                        ? translate(
+                            'auto.components.sidebar.HostRemoveDialog.alsoDeleteRemoteHint',
+                            'Permanently deletes the remote Git worktrees and their branches. Cannot be undone.'
+                          )
+                        : translate(
+                            'auto.components.sidebar.HostRemoveDialog.alsoForgetLocalHint',
+                            'Clears them from Orca only. Remote files, worktrees, and branches are left untouched.'
+                          )}
+                    </span>
                   </span>
-                </span>
-              </label>
-            ) : null}
+                </div>
+              </div>
+            </div>
           </div>
         ) : null}
 
