@@ -746,6 +746,7 @@ export type UISlice = {
     | 'edit-meta'
     | 'delete-worktree'
     | 'forget-ssh-workspace'
+    | 'delete-ssh-workspace'
     | 'confirm-add-project-from-folder'
     | 'confirm-non-git-folder'
     | 'confirm-remove-folder'
