@@ -48,6 +48,7 @@ import { isPathInsideOrEqual } from '../../../../shared/cross-platform-path'
 import { getRepoIdFromWorktreeId } from '../../../../shared/worktree-id'
 import { selectProjectGroupRemovalTargets } from './project-group-removal-targets'
 import { reconcileFetchedRepos } from './repo-identity-reconcile'
+import { pruneSupersededSshRepoRows } from './superseded-ssh-repo-rows'
 import { splitRepoReorderByHost } from './repo-reorder-host-split'
 import { omitSparsePresetsForRepos } from './sparse-presets'
 import {
@@ -1411,18 +1412,26 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
         return
       }
       set((s) => {
-        const validRepoIds = new Set(reconciledRepos.map((repo) => repo.id))
+        // Why: after re-adoption re-points a repo onto a re-added SSH target, the
+        // per-host merge leaves the stale row on the old (removed) target id — a
+        // ghost a terminal pane can bind to and fail with "SSH target not found".
+        // Drop rows on unknown SSH targets that a live-host sibling supersedes.
+        const prunedRepos = pruneSupersededSshRepoRows(
+          reconciledRepos,
+          new Set(s.sshTargetLabels.keys())
+        )
+        const validRepoIds = new Set(prunedRepos.map((repo) => repo.id))
         const mergedProjectCompatibility = mergeFetchedProjectCompatibilityForHost({
           previous: {
             projects: s.projects,
             projectHostSetups: s.projectHostSetups
           },
           fetched: projectCompatibility,
-          repos: reconciledRepos,
+          repos: prunedRepos,
           hostId
         })
         return {
-          repos: reconciledRepos,
+          repos: prunedRepos,
           ...mergedProjectCompatibility,
           folderWorkspacePathStatuses: {},
           activeRepoId: s.activeRepoId && validRepoIds.has(s.activeRepoId) ? s.activeRepoId : null,
