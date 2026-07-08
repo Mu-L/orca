@@ -278,18 +278,6 @@ export function runWorktreeDelete(worktreeId: string): void {
     })
     return
   }
-  // Why: on a connected SSH host, default to removing the workspace from Orca
-  // only (keeping the remote worktree/branch), with an opt-in to also delete it
-  // on the remote. This dialog owns that choice, so it isn't bypassed by the
-  // skip-confirm preference the way a plain local delete is.
-  if (sshResolution.kind === 'connected') {
-    state.openModal('delete-ssh-workspace', {
-      worktreeId,
-      displayName: target.displayName,
-      targetId: sshResolution.targetId
-    })
-    return
-  }
 
   const hasLineageChildren =
     getWorkspaceDeleteLineage(target, state.allWorktrees(), state.worktreeLineageById).descendants
