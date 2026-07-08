@@ -182,8 +182,8 @@ export function HostRemoveDialog({
   const deleteOptionLabel = isConnected
     ? translate(
         'auto.components.sidebar.HostRemoveDialog.alsoDeleteRemote',
-        'Also delete these {{value0}} on the remote',
-        { value0: workspaceCountLabel }
+        'Also delete these {{value0}} on {{value1}}',
+        { value0: workspaceCountLabel, value1: label }
       )
     : translate(
         'auto.components.sidebar.HostRemoveDialog.alsoForgetLocal',
