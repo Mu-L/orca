@@ -191,18 +191,6 @@ export function HostRemoveDialog({
         { value0: workspaceCountLabel }
       )
 
-  const primaryLabel = deleteWorkspaces
-    ? isConnected
-      ? translate(
-          'auto.components.sidebar.HostRemoveDialog.deleteHostAndWorkspaces',
-          'Remove host & delete workspaces'
-        )
-      : translate(
-          'auto.components.sidebar.HostRemoveDialog.removeHostForgetWorkspaces',
-          'Remove host & workspaces'
-        )
-    : translate('auto.components.sidebar.HostRemoveDialog.8b9c0d1e2f', 'Remove host')
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
@@ -257,7 +245,7 @@ export function HostRemoveDialog({
                       aria-hidden
                       className={cn(
                         'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border border-transparent transition-colors',
-                        deleteWorkspaces ? 'bg-destructive' : 'bg-muted-foreground/30'
+                        deleteWorkspaces ? 'bg-foreground' : 'bg-muted-foreground/30'
                       )}
                     >
                       <span
@@ -313,7 +301,7 @@ export function HostRemoveDialog({
               onClick={() => void runSshRemoval()}
             >
               {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
-              {primaryLabel}
+              {translate('auto.components.sidebar.HostRemoveDialog.8b9c0d1e2f', 'Remove host')}
             </Button>
           )}
         </DialogFooter>
